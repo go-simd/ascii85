@@ -130,6 +130,56 @@ func TestDecodeError(t *testing.T) {
 	}
 }
 
+// TestDecodeSmallDst exercises the dst-room cap: when dst cannot hold another
+// 4-byte group, Decode (like the stdlib) must stop early with no error. dstLen is
+// swept so the SIMD run is capped at 0, partial, and full group counts.
+func TestDecodeSmallDst(t *testing.T) {
+	src := randBytes(7, 200)
+	enc := make([]byte, MaxEncodedLen(len(src)))
+	enc = enc[:Encode(enc, src)] // all clean 5-char groups (no zero groups likely)
+	for dstLen := 0; dstLen <= len(src)+8; dstLen++ {
+		gotDst := make([]byte, dstLen)
+		wantDst := make([]byte, dstLen)
+		for _, flush := range []bool{false, true} {
+			gnd, gns, gerr := Decode(gotDst, enc, flush)
+			wnd, wns, werr := stdascii85.Decode(wantDst, enc, flush)
+			if gnd != wnd || gns != wns || (gerr == nil) != (werr == nil) {
+				t.Fatalf("dstLen=%d flush=%v: got (%d,%d,%v) want (%d,%d,%v)", dstLen, flush, gnd, gns, gerr, wnd, wns, werr)
+			}
+			if string(gotDst[:gnd]) != string(wantDst[:wnd]) {
+				t.Fatalf("dstLen=%d flush=%v: data mismatch", dstLen, flush)
+			}
+		}
+	}
+}
+
+// TestDecodeOffsetError checks that a CorruptInputError after a clean SIMD-decoded
+// prefix carries the correct absolute offset (the stdlib's offset shifted by the
+// prefix length) and that ndst/nsrc are reset to 0 on error, like the stdlib.
+func TestDecodeOffsetError(t *testing.T) {
+	// 24 clean groups (120 chars) decode via the SIMD/scalar kernel, then an
+	// invalid byte at offset 121.
+	prefix := make([]byte, 0, 130)
+	for i := 0; i < 24; i++ {
+		prefix = append(prefix, []byte("87cUR")...)
+	}
+	src := append(append([]byte{}, prefix...), 'x', '\x00', 'y')
+	dst := make([]byte, 256)
+	wantDst := make([]byte, 256)
+	gnd, gns, gerr := Decode(dst, src, true)
+	wnd, wns, werr := stdascii85.Decode(wantDst, src, true)
+	if gnd != wnd || gns != wns {
+		t.Fatalf("offsets: got (%d,%d) want (%d,%d)", gnd, gns, wnd, wns)
+	}
+	ce, ok := gerr.(CorruptInputError)
+	if !ok {
+		t.Fatalf("want CorruptInputError, got %T (%v)", gerr, gerr)
+	}
+	if wce, _ := werr.(CorruptInputError); ce != wce {
+		t.Fatalf("offset mismatch: got %v want %v", gerr, werr)
+	}
+}
+
 func FuzzEncode(f *testing.F) {
 	f.Add([]byte("hello world"))
 	f.Add(make([]byte, 16))
@@ -182,5 +232,31 @@ func BenchmarkEncodeStdlib(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		stdascii85.Encode(dst, src)
+	}
+}
+
+func benchEncoded() []byte {
+	src := benchData()
+	enc := make([]byte, MaxEncodedLen(len(src)))
+	return enc[:Encode(enc, src)]
+}
+
+func BenchmarkDecode(b *testing.B) {
+	enc := benchEncoded()
+	dst := make([]byte, len(enc)*4/5+8)
+	b.SetBytes(int64(len(enc)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Decode(dst, enc, true)
+	}
+}
+
+func BenchmarkDecodeStdlib(b *testing.B) {
+	enc := benchEncoded()
+	dst := make([]byte, len(enc)*4/5+8)
+	b.SetBytes(int64(len(enc)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		stdascii85.Decode(dst, enc, true)
 	}
 }
