@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/go-simd/brand/main/social/go-simd.png" alt="go-simd/ascii85" width="720"></p>
+
 # ascii85
 
 [![CI](https://github.com/go-simd/ascii85/actions/workflows/ci.yml/badge.svg)](https://github.com/go-simd/ascii85/actions/workflows/ci.yml)
@@ -65,21 +67,23 @@ offset shifted back to the absolute position. So whitespace skipping, `z`, the
 short trailing group, `flush`, the `(ndst, nsrc)` returns, and the error offsets
 all stay identical to the standard library.
 
-| op | amd64 | ppc64le | s390x | riscv64 | loong64 | arm64 |
+| op | amd64 | ppc64le | s390x | riscv64 | loong64 | arm64 (go1.27+) |
 |---|---|---|---|---|---|---|
-| encode | **SSE** (PMULULQ) | **VSX** (VMULEUW/OUW) | **vector** (VMLHF) | **RVV** (VMULHUVV) | **LSX** (VMUHWU) | fused scalar |
-| decode | **SSE** (PMULLD) | **VSX** (VMULUWM) | **vector** (VMLF) | **RVV** (VMULVX) | **LSX** (VMULW) | fused scalar |
+| encode | **SSE** (PMULULQ) | **VSX** (VMULEUW/OUW) | **vector** (VMLHF) | **RVV** (VMULHUVV) | **LSX** (VMUHWU) | **NEON** (VUMULL/VUMULL2) |
+| decode | **SSE** (PMULLD) | **VSX** (VMULUWM) | **vector** (VMLF) | **RVV** (VMULVX) | **LSX** (VMULW) | **NEON** (VMUL) |
 
-**Five of the six 64-bit targets ship a real SIMD kernel in both directions.**
-The one exception is **arm64**: Go's released arm64 assembler exposes **no vector
-integer multiply** (`VMUL`/`VUMULL`/`VMLS` exist only in an unreleased upstream
-`cmd/asm` patch), and neither base-85's encode `/85` nor the decode
-multiply-accumulate can be done with the shift/mask tricks that the sibling
-[`go-simd/base64`](https://github.com/go-simd/base64) uses for its NEON kernel.
-arm64 therefore uses a **fused scalar** path in both directions (no per-group
-`z`/whitespace branch, slice-bounded loads/stores) which is still measurably
-faster than `encoding/ascii85` (measured natively on Apple Silicon:
-~1.9× encode, ~1.8× decode).
+**All six 64-bit targets ship a real SIMD kernel in both directions** — but the
+arm64 kernel needs Go 1.27+ (see below).
+
+> **arm64 needs Go 1.27.** The base-85 encode `/85` reciprocal-divide needs a
+> 32-bit vector mulhi and the decode multiply-accumulate needs a 32-bit vector
+> multiply-low — both are **integer** NEON multiplies (`VUMULL`/`VUMULL2`/`VMUL`)
+> that Go's arm64 assembler only gained upstream in **Go 1.27** (the released
+> toolchain exposes only the polynomial `VPMULL`). The arm64 kernel is therefore
+> guarded `//go:build arm64 && go1.27`; on **stable Go, arm64 falls back to a
+> fused scalar path** (`encode_generic.go`/`decode_generic.go`), which is itself
+> measurably faster than `encoding/ascii85`. Build with [gotip](https://pkg.go.dev/golang.org/dl/gotip)
+> (or any Go ≥ 1.27) to get the NEON kernel.
 
 ### Per-arch encode-kernel notes
 
@@ -108,6 +112,13 @@ math, the `+33`, and the stride-4→stride-5 scatter are otherwise identical.
 - **loong64 (LSX):** single-op `VMUHWU` mulhi, `VSRLW $6`; `VMULW` for `q*85`;
   `VSHUFB` for the byte-reverse and the scatter (its first operand is the control
   vector; index ≥16 selects the zero high source → gap zeroing).
+- **arm64 (NEON, go1.27+):** mulhi via `VUMULL V.S2,…,V.D2` (lanes 0,1) +
+  `VUMULL2 V.S4,…,V.D2` (lanes 2,3) for the 32×32→64 products, then `VUZP2` of
+  the two product registers (read as `.S4`) lifts the high 32 bits of all four
+  products into one `.S4` register; `VUSHR $6` finishes the `/85`, `VMUL` does
+  `q*85`. A per-lane `VREV32` builds the big-endian group value on load; `VTBL`
+  (index bit7 → 0 gives free gap zeroing) does the stride-4→stride-5 scatter into
+  two overlapping windows written by two `VST1` stores.
 
 ### Per-arch decode-kernel notes
 
@@ -133,6 +144,9 @@ big-endian layout are the only other differences.
 - **loong64 (LSX):** five `VMOVQ src+k` + `VSHUFB` gather (index 16 → zero high
   source); `VSUBW`/`VMULW`/`VADDW` MAC; a `VSHUFB` byte-reverse before one `VMOVQ`
   store.
+- **arm64 (NEON, go1.27+):** five `VLD1 src+k` + `VTBL` gather (one shared control,
+  index bit7 → 0 for the gaps); `VSUB` for `-'!'`, MAC via `VMUL`/`VADD`; a
+  per-lane `VREV32` byte-reverse before one `VST1` store.
 
 Every backend's instruction operand orders and shuffle/lane semantics were
 **confirmed empirically under QEMU** before the full kernel was assembled (e.g.
@@ -140,15 +154,19 @@ s390x `VSF` is second-minus-first and `VPERM` indexes byte addresses with no
 0x80 zeroing; ppc `VSRW Vdata,Vshift`; loong64 `VSHUFB Vctrl,Vlow,Vhigh,Vd`;
 RVV `VRGATHERVV Vindex,Vsrc,Vd`). All six targets are verified against
 `encoding/ascii85` (table + `FuzzEncode`/`FuzzDecode`, byte- and error-identical):
-amd64 natively (x86_64 VM), arm64 natively, and ppc64le/s390x/riscv64/loong64
-under QEMU.
+amd64 natively (x86_64 VM), arm64 natively (NEON kernel under **gotip / Go 1.27**,
+fused-scalar fallback under stable Go), and ppc64le/s390x/riscv64/loong64 under
+QEMU.
 
 ## Performance
 
-- **arm64** (Apple Silicon, native, 1 MiB buffer): the fused-scalar paths run at
-  **~1920 MB/s vs ~1010 MB/s** stdlib on encode (**~1.9×**) and
-  **~2060 MB/s vs ~1130 MB/s** stdlib on decode (**~1.8×**), purely from dropping
-  the per-group `z`/whitespace branch and using slice-bounded loads/stores.
+- **arm64** (Apple Silicon, native, 1 MiB buffer):
+  - **Go 1.27+ NEON kernel** (measured on gotip): **~1414 MB/s vs ~474 MB/s**
+    stdlib on encode (**~3.0×**) and **~1917 MB/s vs ~744 MB/s** stdlib on decode
+    (**~2.6×**).
+  - **Stable Go fused-scalar fallback**: still **~1.9× encode / ~1.8× decode**
+    over stdlib, purely from dropping the per-group `z`/whitespace branch and
+    using slice-bounded loads/stores.
 - **amd64**: the SSE kernels are correctness-validated (table + fuzz) on an
   x86_64 VM. Honest caveat: the only available x86_64 host is itself QEMU-TCG
   (no native silicon was available), and TCG makes SIMD disproportionately
@@ -162,8 +180,10 @@ under QEMU.
 ## Coverage
 
 The CI gate enforces **100% coverage of the Go code** on every arch job: native
-amd64 + native arm64, plus QEMU jobs for ppc64le, s390x, riscv64, and loong64.
-Coverage is of the Go statements only — the generated `.s` SIMD kernels are not
+amd64 + native arm64 (stable Go = fused-scalar fallback), a separate **gotip /
+Go 1.27 arm64 job** that compiles and covers the NEON kernel, plus QEMU jobs for
+ppc64le, s390x, riscv64, and loong64. Coverage is of the Go statements only — the
+generated `.s` SIMD kernels are not
 measured by `go test -cover`; they are validated by differential tests against
 the `encoding/ascii85` reference (byte-, error-, and offset-identical) plus
 `FuzzEncode`/`FuzzDecode` on every arch that ships a kernel.
@@ -181,11 +201,13 @@ go run encode_ppc64x_gen.go     # ppc64le encode
 go run encode_s390x_gen.go      # s390x encode
 go run encode_riscv64_gen.go    # riscv64 encode
 go run encode_loong64_gen.go    # loong64 encode
+go run encode_arm64_gen.go      # arm64 encode (NEON, needs gotip / Go 1.27)
 go run decode_gen.go            # amd64 decode
 go run decode_ppc64x_gen.go     # ppc64le decode
 go run decode_s390x_gen.go      # s390x decode
 go run decode_riscv64_gen.go    # riscv64 decode
 go run decode_loong64_gen.go    # loong64 decode
+go run decode_arm64_gen.go      # arm64 decode (NEON, needs gotip / Go 1.27)
 go mod edit -droprequire github.com/go-asmgen/asmgen
 go mod edit -go=1.21
 go mod tidy

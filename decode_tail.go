@@ -1,4 +1,4 @@
-//go:build amd64 || ppc64le || s390x || riscv64 || loong64
+//go:build amd64 || ppc64le || s390x || riscv64 || loong64 || (arm64 && go1.27)
 
 package ascii85
 
