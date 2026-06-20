@@ -172,10 +172,22 @@ QEMU.
   (no native silicon was available), and TCG makes SIMD disproportionately
   expensive relative to scalar, so its throughput is not representative of native
   hardware. Native amd64 throughput is **pending real silicon**.
-- **ppc64le / s390x / riscv64 / loong64**: real SIMD kernels, **QEMU-validated
-  (byte-, error-, and offset-identical to `encoding/ascii85`); native perf
-  pending** real silicon — no GitHub-hosted POWER/IBM Z/RISC-V/LoongArch runners
-  exist and QEMU TCG is not cycle-accurate.
+- **ppc64le**: **now measured on real POWER10 silicon** (GCC Compile Farm,
+  https://portal.cfarm.net/, VSX, Go 1.26.4, June 2026): the VSX encode kernel
+  runs at **~528 MB/s vs ~198 MB/s** stdlib — **~2.7×** native.
+- **s390x / riscv64 / loong64**: real SIMD kernels, **QEMU-validated (byte-,
+  error-, and offset-identical to `encoding/ascii85`) for correctness only;
+  native perf pending** real silicon — no GitHub-hosted IBM Z/RISC-V/LoongArch
+  runners exist and QEMU TCG is not cycle-accurate.
+
+### Seventh architecture: ppc64 (big-endian)
+
+Beyond the six SIMD targets, the fused-scalar fallback is now build- and test-
+validated on **ppc64 (big-endian)** on real POWER9 silicon (GCC Compile Farm) —
+byte-, error-, and offset-identical to `encoding/ascii85` on a big-endian target
+distinct from s390x's vector kernel. ppc64 BE carries no VSX build tag, so it
+takes the generic path, not a SIMD kernel. Framing: **six SIMD targets, validated
+on seven architectures.**
 
 ## Coverage
 
