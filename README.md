@@ -175,9 +175,15 @@ QEMU.
 - **ppc64le**: **now measured on real POWER10 silicon** (GCC Compile Farm,
   https://portal.cfarm.net/, VSX, Go 1.26.4, June 2026): the VSX encode kernel
   runs at **~528 MB/s vs ~198 MB/s** stdlib — **~2.7×** native.
-- **s390x / riscv64 / loong64**: real SIMD kernels, **QEMU-validated (byte-,
+- **riscv64**: **now measured on a real SpacemiT X60 (RVV 1.0)** (GCC Compile
+  Farm, https://portal.cfarm.net/, Go 1.26.4, June 2026): the RVV encode kernel
+  runs at **~182 MB/s vs ~44 MB/s** stdlib — **~4.1×** native. The X60 is a
+  low-power *in-order* RVV core — currently the only widely-available RVV silicon
+  — so this arithmetic-bound encode wins big and an out-of-order RVV part would
+  likely do better still.
+- **s390x / loong64**: real SIMD kernels, **QEMU-validated (byte-,
   error-, and offset-identical to `encoding/ascii85`) for correctness only;
-  native perf pending** real silicon — no GitHub-hosted IBM Z/RISC-V/LoongArch
+  native perf pending** real silicon — no GitHub-hosted IBM Z/LoongArch
   runners exist and QEMU TCG is not cycle-accurate.
 
 ### Seventh architecture: ppc64 (big-endian)
