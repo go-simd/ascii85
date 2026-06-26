@@ -2,7 +2,10 @@
 
 // Command gen produces decode_ppc64x.s with go-asmgen: a vectorised ascii85
 // (Adobe/btoa base-85) decoder for ppc64le using the VSX/AltiVec vector facility,
-// 4 groups (20 chars -> 16 bytes) per iteration.
+// 4 groups (20 chars -> 16 bytes) per iteration. It uses ISA-3.0 (POWER9)
+// instructions (LXVB16X/STXVB16X), which raise SIGILL on POWER8, so the
+// dispatcher gates it on cpu.PPC64.IsPOWER9 and falls back to a scalar loop
+// (decodeScalar) on POWER8.
 //
 // Each word lane l decodes one 5-char group with a base-85 multiply-accumulate
 // (((c0*85+c1)*85+c2)*85+c3)*85+c4 (VMULUWM multiply-low + VADDUWM), the inverse
@@ -68,10 +71,10 @@ func main() {
 
 	b := ppc64.NewFunc("decodeGroups", sig, 0)
 	b.LoadArg("dst_base", "R3").LoadArg("src_base", "R4").LoadArg("blocks", "R5").
-		Raw("MOVD $%s(SB), R6", c33).Raw("LXVB16X (R6)(R0), VS52"). // V20 = 33
-		Raw("MOVD $%s(SB), R6", c85).Raw("LXVB16X (R6)(R0), VS53"). // V21 = 85
-		Raw("MOVD $%s(SB), R6", gath).Raw("LXVB16X (R6)(R0), VS54").// V22 = gather ctrl
-		Raw("VSPLTISW $0, V19").                                    // zero (VPERM gap source)
+		Raw("MOVD $%s(SB), R6", c33).Raw("LXVB16X (R6)(R0), VS52").  // V20 = 33
+		Raw("MOVD $%s(SB), R6", c85).Raw("LXVB16X (R6)(R0), VS53").  // V21 = 85
+		Raw("MOVD $%s(SB), R6", gath).Raw("LXVB16X (R6)(R0), VS54"). // V22 = gather ctrl
+		Raw("VSPLTISW $0, V19").                                     // zero (VPERM gap source)
 		Raw("CMP R5, $0").Raw("BEQ done").
 		Label("loop").
 		// Gather C0..C4 from windows src+k via VPERM, subtract '!'.

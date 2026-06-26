@@ -2,7 +2,10 @@
 
 // Command gen produces encode_ppc64x.s with go-asmgen: a vectorised ascii85
 // (Adobe/btoa base-85) encoder for ppc64le using the VSX/AltiVec vector facility,
-// 4 groups (16 input bytes -> 20 chars) per iteration.
+// 4 groups (16 input bytes -> 20 chars) per iteration. It uses ISA-3.0 (POWER9)
+// instructions (LXVB16X/STXVB16X), which raise SIGILL on POWER8, so the
+// dispatcher gates it on cpu.PPC64.IsPOWER9 and falls back to a scalar loop
+// (encodeScalar) on POWER8.
 //
 // A 16-byte LXVB16X load (byte-order-correct on little-endian; LXVD2X would swap
 // doublewords) places each group's 4 bytes into a word lane whose in-register
