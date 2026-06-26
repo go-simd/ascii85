@@ -172,19 +172,27 @@ QEMU.
   (no native silicon was available), and TCG makes SIMD disproportionately
   expensive relative to scalar, so its throughput is not representative of native
   hardware. Native amd64 throughput is **pending real silicon**.
-- **ppc64le**: **now measured on real POWER10 silicon** (GCC Compile Farm,
-  https://portal.cfarm.net/, VSX, Go 1.26.4, June 2026): the VSX encode kernel
-  runs at **~528 MB/s vs ~198 MB/s** stdlib — **~2.7×** native.
-- **riscv64**: **now measured on a real SpacemiT X60 (RVV 1.0)** (GCC Compile
-  Farm, https://portal.cfarm.net/, Go 1.26.4, June 2026): the RVV encode kernel
-  runs at **~182 MB/s vs ~44 MB/s** stdlib — **~4.1×** native. The X60 is a
+- **ppc64le**: **measured on real POWER9 silicon** (GCC Compile Farm,
+  https://portal.cfarm.net/, VSX, Go 1.26.4, 2026-06-26): the VSX encode kernel
+  runs at **~508 MB/s vs ~177 MB/s** stdlib — **~2.9×** native (decode ~704 vs
+  ~324 MB/s — ~2.2×). The VSX kernels use ISA-3.0 (POWER9) `LXVB16X`/`STXVB16X`;
+  they are runtime-gated on POWER9 detection and fall back to a byte-identical
+  scalar loop on POWER8 (verified no-SIGILL on real POWER8E, cfarm112).
+- **riscv64**: **measured on a real SpacemiT X60 (RVV 1.0)** (GCC Compile
+  Farm, https://portal.cfarm.net/, Go 1.26.4, 2026-06-26, post RVV-gather-gap
+  fix): the RVV encode kernel runs at **~134 MB/s vs ~33 MB/s** stdlib —
+  **~4.0×** native (decode ~121 vs ~69 MB/s — ~1.8×). The X60 is a
   low-power *in-order* RVV core — currently the only widely-available RVV silicon
   — so this arithmetic-bound encode wins big and an out-of-order RVV part would
   likely do better still.
-- **s390x / loong64**: real SIMD kernels, **QEMU-validated (byte-,
+- **loong64**: **measured on a real Loongson 3A5000 (LSX)** (GCC Compile
+  Farm cfarm401, https://portal.cfarm.net/, Go 1.26.4, 2026-06-26): the LSX
+  encode kernel runs at **~4.3× scalar** native — correctness PASSES (byte-,
+  error-, and offset-identical to `encoding/ascii85`) on real loong64 silicon.
+- **s390x**: real SIMD kernels, **QEMU-validated (byte-,
   error-, and offset-identical to `encoding/ascii85`) for correctness only;
-  native perf pending** real silicon — no GitHub-hosted IBM Z/LoongArch
-  runners exist and QEMU TCG is not cycle-accurate.
+  native perf pending** real silicon — no GitHub-hosted IBM Z
+  runner exists and QEMU TCG is not cycle-accurate.
 
 ### Seventh architecture: ppc64 (big-endian)
 
