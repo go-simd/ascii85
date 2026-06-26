@@ -57,21 +57,21 @@ done:
 	RET
 
 DATA d85gath<>+0(SB)/1, $0x00
-DATA d85gath<>+1(SB)/1, $0x10
-DATA d85gath<>+2(SB)/1, $0x10
-DATA d85gath<>+3(SB)/1, $0x10
+DATA d85gath<>+1(SB)/1, $0xff
+DATA d85gath<>+2(SB)/1, $0xff
+DATA d85gath<>+3(SB)/1, $0xff
 DATA d85gath<>+4(SB)/1, $0x05
-DATA d85gath<>+5(SB)/1, $0x10
-DATA d85gath<>+6(SB)/1, $0x10
-DATA d85gath<>+7(SB)/1, $0x10
+DATA d85gath<>+5(SB)/1, $0xff
+DATA d85gath<>+6(SB)/1, $0xff
+DATA d85gath<>+7(SB)/1, $0xff
 DATA d85gath<>+8(SB)/1, $0x0a
-DATA d85gath<>+9(SB)/1, $0x10
-DATA d85gath<>+10(SB)/1, $0x10
-DATA d85gath<>+11(SB)/1, $0x10
+DATA d85gath<>+9(SB)/1, $0xff
+DATA d85gath<>+10(SB)/1, $0xff
+DATA d85gath<>+11(SB)/1, $0xff
 DATA d85gath<>+12(SB)/1, $0x0f
-DATA d85gath<>+13(SB)/1, $0x10
-DATA d85gath<>+14(SB)/1, $0x10
-DATA d85gath<>+15(SB)/1, $0x10
+DATA d85gath<>+13(SB)/1, $0xff
+DATA d85gath<>+14(SB)/1, $0xff
+DATA d85gath<>+15(SB)/1, $0xff
 GLOBL d85gath<>(SB), RODATA|NOPTR, $16
 
 DATA d85bswap<>+0(SB)/1, $0x03

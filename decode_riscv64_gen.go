@@ -15,8 +15,8 @@
 // k, a VLE8V of src+k loads bytes k..k+15 and a single shared VRGATHERVV index
 // {0,_,_,_,5,_,_,_,10,_,_,_,15,_,_,_} places window byte 5l into the LOW byte of
 // word lane l (byte address 4l, little-endian); gaps use an out-of-range index
-// (16) which VRGATHERVV writes as 0. So lane l's word equals the char; '!' (33)
-// is subtracted with VSUBVX.
+// (255, >= VLMAX on all real hardware) which VRGATHERVV writes as 0. So lane l's
+// word equals the char; '!' (33) is subtracted with VSUBVX.
 //
 // Output: after the MAC, word lane l holds v with byte at address 4l = v (LSB);
 // a per-lane byte reverse (VRGATHERVV at SEW=8, index {3,2,1,0,...}) lays it out
@@ -41,9 +41,14 @@ import (
 func main() {
 	f := emit.NewFile("riscv64")
 
-	// Gather index: window byte 5l -> word lane l low byte (addr 4l). Gaps = 16
-	// (out of range -> 0).
-	const z = 16
+	// Gather index: window byte 5l -> word lane l low byte (addr 4l). Gaps use an
+	// out-of-range index so VRGATHERVV writes 0. The RVV spec zeroes a gather lane
+	// only when its index >= VLMAX (not >= VL); on VLEN>128 hardware VLMAX at
+	// SEW=8/LMUL=1 exceeds 16 (e.g. 32 on the 256-bit SpacemiT X60), so a sentinel
+	// of 16 would instead read an undefined tail element (observed as 0xff) and
+	// corrupt the output. Use 255, which is >= VLMAX for every VLEN <= 2040 bits
+	// (i.e. all real RVV hardware), so the gap reliably reads as 0.
+	const z = 255
 	gath := f.Data("d85gath", []byte{0, z, z, z, 5, z, z, z, 10, z, z, z, 15, z, z, z})
 	// Per-lane byte-reverse index for the big-endian output store.
 	bswap := f.Data("d85bswap", []byte{3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12})

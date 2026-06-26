@@ -55,9 +55,14 @@ func main() {
 	// Per-lane byte-reverse index (little-endian word -> big-endian value v).
 	bswap := f.Data("a85bswap", []byte{3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12})
 	// Scatter gather-indices; the digit byte sits at byte address 4l. Gaps use an
-	// out-of-range index (16) which VRGATHERVV writes as 0. Two overlapping windows:
-	// A = bytes 0..15 (at dst), B = bytes 4..19 (at dst+4).
-	const z = 16
+	// out-of-range index so VRGATHERVV writes 0. The RVV spec zeroes a gather lane
+	// only when its index >= VLMAX (not >= VL); on VLEN>128 hardware VLMAX at
+	// SEW=8/LMUL=1 exceeds 16 (e.g. 32 on the 256-bit SpacemiT X60), so a sentinel
+	// of 16 would instead read an undefined tail element (observed as 0xff) and
+	// corrupt the output. Use 255, which is >= VLMAX for every VLEN <= 2040 bits
+	// (i.e. all real RVV hardware), so the gap reliably reads as 0. Two overlapping
+	// windows: A = bytes 0..15 (at dst), B = bytes 4..19 (at dst+4).
+	const z = 255
 	expA := f.Data("a85expA", []byte{0, 1, 2, 3, z, 4, 5, 6, 7, z, 8, 9, 10, 11, z, 12})
 	d4A := f.Data("a85d4A", []byte{z, z, z, z, 0, z, z, z, z, 4, z, z, z, z, 8, z})
 	expB := f.Data("a85expB", []byte{z, 4, 5, 6, 7, z, 8, 9, 10, 11, z, 12, 13, 14, 15, z})

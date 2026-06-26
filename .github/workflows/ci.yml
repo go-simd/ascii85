@@ -58,7 +58,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: riscv64, image: "debian:trixie", qemu: "rv64,v=true,vlen=128" }
+          # vlen=256 (not 128): the RVV gather gaps rely on an index >= VLMAX
+          # reading as 0, and VLMAX at SEW=8/LMUL=1 is VLEN/8. A vlen=128 run
+          # (VLMAX=16) masks a too-small gap sentinel; vlen=256 (VLMAX=32, like
+          # the real SpacemiT X60) exercises it, catching that regression class.
+          - { arch: riscv64, image: "debian:trixie", qemu: "rv64,v=true,vlen=256" }
           - { arch: loong64, image: "ghcr.io/loong64/debian:trixie", qemu: "la464" }
           - { arch: ppc64le, image: "debian:trixie", qemu: "power9" }
           - { arch: s390x,   image: "debian:trixie", qemu: "qemu" }
