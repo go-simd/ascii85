@@ -88,13 +88,16 @@ jobs:
           [ "$pct" = "100.0%" ] || { echo "coverage below 100%"; exit 1; }
 
   # POWER8 ISA-guard lane. The `emulated` ppc64le job runs the POWER9 model, so an
-  # ISA-3.0 op illegal on POWER8 (LXVB16X/STXVB16X/CNTTZD) slips through there and
-  # only SIGILLs on a real POWER8 (cfarm112). This lane runs the SAME ppc64le test
-  # binary under QEMU_CPU=power8 (qemu-user honors QEMU_CPU; power8 == power8e ==
-  # power8_v2.0): if a VSX kernel emits an ISA-3.0 op without a POWER9 dispatch
-  # gate, it SIGILLs here. No 100% coverage gate: on POWER8 a properly-gated kernel
-  # takes the scalar fallback (kernel branch uncovered, ~93%); coverage is enforced
-  # by the POWER9 `emulated` lane. The contract here is "must not SIGILL on POWER8".
+  # ISA-3.0 op illegal on POWER8 would slip through there and only SIGILL on a real
+  # POWER8 (cfarm112). This lane runs the SAME ppc64le test binary under
+  # QEMU_CPU=power8 (qemu-user honors QEMU_CPU; power8 == power8e == power8_v2.0).
+  # The encode/decode VSX kernels are now built entirely from ISA-2.07 ops (the
+  # ISA-3.0 LXVB16X/STXVB16X element-order load/store was replaced by LXVD2X/STXVD2X
+  # + a VPERM byte-reversal), so they run natively on POWER8 — and the dispatch test
+  # forces the kernels on, so this lane actually EXERCISES the POWER8 VSX kernels
+  # (not just the scalar fallback) and proves they do not SIGILL. The 100% coverage
+  # gate is enforced by the POWER9 `emulated` lane. The contract here is "must not
+  # SIGILL on POWER8".
   emulated-ppc64le-power8:
     runs-on: ubuntu-latest
     steps:

@@ -2,15 +2,23 @@
 
 // Command gen produces encode_ppc64x.s with go-asmgen: a vectorised ascii85
 // (Adobe/btoa base-85) encoder for ppc64le using the VSX/AltiVec vector facility,
-// 4 groups (16 input bytes -> 20 chars) per iteration. It uses ISA-3.0 (POWER9)
-// instructions (LXVB16X/STXVB16X), which raise SIGILL on POWER8, so the
-// dispatcher gates it on cpu.PPC64.IsPOWER9 and falls back to a scalar loop
-// (encodeScalar) on POWER8.
+// 4 groups (16 input bytes -> 20 chars) per iteration. It is built from
+// ISA-2.07 (POWER8-baseline) ops only, so it runs natively on POWER8 (no POWER9
+// gate). The only POWER9-specific instructions a byte-order-correct vector
+// codec normally wants — LXVB16X/STXVB16X (the element-order vector load/store)
+// — are emitted instead as an ISA-2.07 LXVD2X/STXVD2X plus one VPERM against a
+// fixed byte-reversal control vrev (see emitLoadB16/emitStoreB16 below).
 //
-// A 16-byte LXVB16X load (byte-order-correct on little-endian; LXVD2X would swap
-// doublewords) places each group's 4 bytes into a word lane whose in-register
+// vrev bootstrap: LXVB16X(addr) yields register element[i]=mem[i]. Plain
+// LXVD2X(addr) yields [m7,m6,m5,m4,m3,m2,m1,m0, m15,..,m8] (per-doubleword
+// byte-reversed). VPERM(x,x,vrev) with vrev in that same scrambled layout undoes
+// it — and the bytes 0..15 stored ascending happen to LOAD via LXVD2X as exactly
+// that involution control, so a single plain LXVD2X of {0..15} sets up vrev.
+// Verified on cfarm433 (POWER9) and cfarm112 (POWER8E).
+//
+// In register the load places each group's 4 bytes into a word lane whose
 // big-endian interpretation is exactly the 32-bit value v the encoder wants, so
-// no byte-reversal is needed. The five base-85 digits are pulled out with five
+// no further byte-reversal is needed. The five base-85 digits are pulled out with five
 // reciprocal-multiply steps: the 32-bit mulhi is VMULEUW (even-lane 32x32->64
 // products, high32 at words 0,2) and VMULOUW (odd lanes) merged by VMRGEW into
 // [h0,h1,h2,h3], then VSRW by 6 (v/85 == (v*0xC0C0C0C1)>>32>>6, exact over all
@@ -42,6 +50,26 @@ import (
 	"github.com/go-asmgen/asmgen/emit"
 	"github.com/go-asmgen/asmgen/ppc64"
 )
+
+// vrevName/vrevReg name the shared byte-reversal control. V31 (VS63) holds it for
+// the whole kernel; it is loaded once via a plain LXVD2X of {0,1,..,15}.
+const vrevVS = "VS63"
+const vrevV = "V31"
+
+// emitLoadB16 emits the ISA-2.07 equivalent of "LXVB16X (addrExpr), vs" (vs the
+// "VSnn" name, v its aliased "Vnn" name): LXVD2X then VPERM v,v,vrev.
+func emitLoadB16(bld *ppc64.Builder, addrExpr, vs, v string) {
+	bld.Raw("LXVD2X %s, %s", addrExpr, vs).
+		Raw("VPERM %s, %s, %s, %s", v, v, vrevV, v)
+}
+
+// emitStoreB16 emits the ISA-2.07 equivalent of "STXVB16X vs, (addrExpr)": VPERM
+// v,v,vrev into the scratch V30/VS62, then STXVD2X. v is left clobbered (callers
+// store each result vector once).
+func emitStoreB16(bld *ppc64.Builder, vs, v, addrExpr string) {
+	bld.Raw("VPERM %s, %s, %s, V30", v, v, vrevV).
+		Raw("STXVD2X VS62, %s", addrExpr)
+}
 
 // be4 stores a 32-bit constant big-endian into all four word lanes so the
 // in-register big-endian word value (after an LXVB16X load) equals v.
@@ -75,6 +103,9 @@ func main() {
 	d4A := f.Data("a85d4A", []byte{z, z, z, z, 0, z, z, z, z, 4, z, z, z, z, 8, z})
 	expB := f.Data("a85expB", []byte{z, 4, 5, 6, 7, z, 8, 9, 10, 11, z, 12, 13, 14, 15, z})
 	d4B := f.Data("a85d4B", []byte{0, z, z, z, z, 4, z, z, z, z, 8, z, z, z, z, 12})
+	// Byte-reversal control for the LXVB16X/STXVB16X emulation. Stored ascending;
+	// a plain LXVD2X loads it into the involution layout VPERM needs.
+	rev := f.Data("a85rev", []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15})
 
 	sig := abi.LayoutArgs(
 		[]abi.Arg{abi.Slice("dst"), abi.Slice("src"), abi.Scalar("blocks", abi.Int64)},
@@ -83,20 +114,32 @@ func main() {
 
 	b := ppc64.NewFunc("encodeGroups", sig, 0)
 	bld := b.LoadArg("dst_base", "R3").LoadArg("src_base", "R4").LoadArg("blocks", "R5").
-		// Load constant tables (LXVB16X into VS(32+k); used as Vk).
-		Raw("MOVD $%s(SB), R6", mrec).Raw("LXVB16X (R6)(R0), VS52"). // V20 = mrec
-		Raw("MOVD $%s(SB), R6", c85).Raw("LXVB16X (R6)(R0), VS53").  // V21 = 85
-		Raw("MOVD $%s(SB), R6", c33).Raw("LXVB16X (R6)(R0), VS54").  // V22 = 33
-		Raw("MOVD $%s(SB), R6", c24).Raw("LXVB16X (R6)(R0), VS55").  // V23 = 24
-		Raw("MOVD $%s(SB), R6", c6).Raw("LXVB16X (R6)(R0), VS56").   // V24 = 6
-		Raw("MOVD $%s(SB), R6", expA).Raw("LXVB16X (R6)(R0), VS57"). // V25 = exp A (bytes 0..15)
-		Raw("MOVD $%s(SB), R6", expB).Raw("LXVB16X (R6)(R0), VS58"). // V26 = exp B (bytes 4..19)
-		Raw("MOVD $%s(SB), R6", d4A).Raw("LXVB16X (R6)(R0), VS59").  // V27 = d4 A
-		Raw("MOVD $%s(SB), R6", d4B).Raw("LXVB16X (R6)(R0), VS60").  // V28 = d4 B
-		Raw("VSPLTISW $0, V29").                                     // V29 = zero (scatter gap source)
+		// Byte-reversal control vrev in V31 (plain LXVD2X of {0..15}); enables the
+		// ISA-2.07 LXVB16X/STXVB16X emulation used below.
+		Raw("MOVD $%s(SB), R6", rev).Raw("LXVD2X (R6)(R0), %s", vrevVS)
+	// Load constant tables (LXVB16X-equivalent into VS(32+k); used as Vk).
+	bld.Raw("MOVD $%s(SB), R6", mrec)
+	emitLoadB16(bld, "(R6)(R0)", "VS52", "V20") // V20 = mrec
+	bld.Raw("MOVD $%s(SB), R6", c85)
+	emitLoadB16(bld, "(R6)(R0)", "VS53", "V21") // V21 = 85
+	bld.Raw("MOVD $%s(SB), R6", c33)
+	emitLoadB16(bld, "(R6)(R0)", "VS54", "V22") // V22 = 33
+	bld.Raw("MOVD $%s(SB), R6", c24)
+	emitLoadB16(bld, "(R6)(R0)", "VS55", "V23") // V23 = 24
+	bld.Raw("MOVD $%s(SB), R6", c6)
+	emitLoadB16(bld, "(R6)(R0)", "VS56", "V24") // V24 = 6
+	bld.Raw("MOVD $%s(SB), R6", expA)
+	emitLoadB16(bld, "(R6)(R0)", "VS57", "V25") // V25 = exp A (bytes 0..15)
+	bld.Raw("MOVD $%s(SB), R6", expB)
+	emitLoadB16(bld, "(R6)(R0)", "VS58", "V26") // V26 = exp B (bytes 4..19)
+	bld.Raw("MOVD $%s(SB), R6", d4A)
+	emitLoadB16(bld, "(R6)(R0)", "VS59", "V27") // V27 = d4 A
+	bld.Raw("MOVD $%s(SB), R6", d4B)
+	emitLoadB16(bld, "(R6)(R0)", "VS60", "V28") // V28 = d4 B
+	bld.Raw("VSPLTISW $0, V29").                // V29 = zero (scatter gap source)
 		Raw("CMP R5, $0").Raw("BEQ done").
-		Label("loop").
-		Raw("LXVB16X (R4)(R0), VS32") // V0 = four big-endian word values v
+		Label("loop")
+	emitLoadB16(bld, "(R4)(R0)", "VS32", "V0") // V0 = four big-endian word values v
 
 	// digit: q = vReg/85 -> qReg ; remainder vReg - q*85 -> rReg. Scratch V16,V17,V18.
 	digit := func(vReg, qReg, rReg string) {
@@ -140,11 +183,11 @@ func main() {
 		Raw("VOR V13, V12, V12").       // V12 = output bytes 0..15
 		Raw("VPERM V7, V29, V26, V14"). // window B: exp
 		Raw("VPERM V5, V29, V28, V15"). // window B: d4
-		Raw("VOR V15, V14, V14").       // V14 = output bytes 4..19
-		Raw("STXVB16X VS44, (R3)(R0)"). // store bytes 0..15 at dst
-		Raw("ADD $4, R3").
-		Raw("STXVB16X VS46, (R3)(R0)"). // store bytes 4..19 at dst+4
-		Raw("ADD $16, R3").
+		Raw("VOR V15, V14, V14")        // V14 = output bytes 4..19
+	emitStoreB16(bld, "VS44", "V12", "(R3)(R0)") // store bytes 0..15 at dst
+	bld.Raw("ADD $4, R3")
+	emitStoreB16(bld, "VS46", "V14", "(R3)(R0)") // store bytes 4..19 at dst+4
+	bld.Raw("ADD $16, R3").
 		Raw("ADD $16, R4").
 		Raw("ADD $-1, R5").
 		Raw("CMP R5, $0").Raw("BNE loop").

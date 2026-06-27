@@ -7,18 +7,17 @@ import (
 	stdascii85 "encoding/ascii85"
 	"math/rand"
 	"testing"
-
-	"golang.org/x/sys/cpu"
 )
 
 // TestDispatchPPC64LE drives both the encode and decode kernels down both of
 // their branches — the VSX kernel and the scalar loop fallback (encodeScalar /
-// decodeScalar). The kernels emit ISA-3.0 (POWER9) instructions
-// (LXVB16X/STXVB16X) that raise SIGILL on POWER8, so the kernel-forcing branch
-// runs only when the host is actually POWER9+. The scalar-fallback branch is
-// always exercised. The power9-targeted QEMU CI job and the native POWER9/POWER10
-// farm runs cover the kernel branch. Each variant is checked byte-for-byte
-// against encoding/ascii85 (encode) plus a full decode round trip.
+// decodeScalar). The kernels are built from ISA-2.07 (POWER8-baseline) ops only
+// (the element-order load/store is emitted as LXVD2X/STXVD2X + a VPERM
+// byte-reversal, not the ISA-3.0 LXVB16X/STXVB16X), so the kernel branch runs on
+// every ppc64le host (POWER8 included) and both branches are exercised
+// unconditionally here. The QEMU power8 and power9 CI jobs plus the native
+// POWER8E/POWER9 farm runs all cover the kernel branch. Each variant is checked
+// byte-for-byte against encoding/ascii85 (encode) plus a full decode round trip.
 func TestDispatchPPC64LE(t *testing.T) {
 	saved := hasVSX
 	defer func() { hasVSX = saved }()
@@ -61,12 +60,8 @@ func TestDispatchPPC64LE(t *testing.T) {
 	hasVSX = false
 	check("fallback")
 
-	// VSX kernel: only force it on when the CPU is POWER9+, otherwise the
-	// LXVB16X/STXVB16X in the kernels would SIGILL (e.g. on a POWER8 farm node).
-	if !cpu.PPC64.IsPOWER9 {
-		t.Log("CPU is pre-POWER9; VSX kernel branch not exercised on this host")
-		return
-	}
+	// VSX kernel: ISA-2.07 baseline, runs on every ppc64le host (POWER8+), so
+	// force it on unconditionally.
 	hasVSX = true
 	check("kernel")
 }
