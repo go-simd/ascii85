@@ -24,8 +24,9 @@ jobs:
           pct=$(go tool cover -func=cov.out | awk '/^total:/{print $3}')
           echo "coverage=$pct"
           [ "$pct" = "100.0%" ] || { echo "coverage below 100%"; exit 1; }
-      - run: go test -run '^$' -fuzz FuzzEncode -fuzztime 20s ./...
-      - run: go test -run '^$' -fuzz FuzzDecode -fuzztime 20s ./...
+      # Fuzz targets run over their seed corpus deterministically (no -fuzz, no
+      # time box, no flake); randomized time-boxed fuzzing runs nightly in fuzz.yml.
+      - run: go test -run '^Fuzz' ./...
 
   # The arm64 NEON encode/decode kernels use the integer VUMULL/VMUL the Go
   # assembler only gained in Go 1.27, so they build under //go:build go1.27.
@@ -49,8 +50,9 @@ jobs:
           pct=$(gotip tool cover -func=cov.out | awk '/^total:/{print $3}')
           echo "coverage=$pct"
           [ "$pct" = "100.0%" ] || { echo "coverage below 100%"; exit 1; }
-      - run: gotip test -run '^$' -fuzz FuzzEncode -fuzztime 20s ./...
-      - run: gotip test -run '^$' -fuzz FuzzDecode -fuzztime 20s ./...
+      # Fuzz targets run over their seed corpus deterministically (no -fuzz, no
+      # time box, no flake); randomized time-boxed fuzzing runs nightly in fuzz.yml.
+      - run: gotip test -run '^Fuzz' ./...
 
   emulated:
     runs-on: ubuntu-latest
