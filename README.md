@@ -189,10 +189,13 @@ QEMU.
   Farm cfarm401, https://portal.cfarm.net/, Go 1.26.4, 2026-06-26): the LSX
   encode kernel runs at **~4.3× scalar** native — correctness PASSES (byte-,
   error-, and offset-identical to `encoding/ascii85`) on real loong64 silicon.
-- **s390x**: real SIMD kernels, **QEMU-validated (byte-,
-  error-, and offset-identical to `encoding/ascii85`) for correctness only;
-  native perf pending** real silicon — no GitHub-hosted IBM Z
-  runner exists and QEMU TCG is not cycle-accurate.
+- **s390x**: real SIMD kernels, **now measured on real z15** (LPAR guest,
+  VXE2, Ubuntu 6.8, go1.26.4, 2026-07-03): encode **1814 MB/s = 6.4× stdlib**
+  (284 MB/s), decode **1931 MB/s = 3.7× stdlib** (525 MB/s). Correctness
+  PASSES (byte-, error-, offset-identical to `encoding/ascii85`) on real
+  z15 — first time this kernel runs on real Z silicon, unlike RVV where a
+  gather-lane-VLMAX bug caused wrong output (fixed 2026-06-26, see the
+  ascii85 v0.1.1 release notes).
 
 ### Seventh architecture: ppc64 (big-endian)
 
