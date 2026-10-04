@@ -75,7 +75,7 @@ func main() {
 		Raw("BEQ R6, R0, done").
 		Label("loop").
 		// Gather C0..C4 from windows src+k via VSHUFB, subtract '!'.
-		Raw("VMOVQ (R5), V0").Raw("VSHUFB V23, V0, V28, V1").Raw("VSUBW V22, V1, V1"). // C0
+		Raw("VMOVQ (R5), V0").Raw("VSHUFB V23, V0, V28, V1").Raw("VSUBW V22, V1, V1").                        // C0
 		Raw("ADDV $1, R5, R7").Raw("VMOVQ (R7), V0").Raw("VSHUFB V23, V0, V28, V2").Raw("VSUBW V22, V2, V2"). // C1
 		Raw("ADDV $2, R5, R7").Raw("VMOVQ (R7), V0").Raw("VSHUFB V23, V0, V28, V3").Raw("VSUBW V22, V3, V3"). // C2
 		Raw("ADDV $3, R5, R7").Raw("VMOVQ (R7), V0").Raw("VSHUFB V23, V0, V28, V4").Raw("VSUBW V22, V4, V4"). // C3

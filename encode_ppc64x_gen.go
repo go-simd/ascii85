@@ -137,8 +137,8 @@ func main() {
 	bld.Raw("MOVD $%s(SB), R6", d4B)
 	emitLoadB16(bld, "(R6)(R0)", "VS60", "V28") // V28 = d4 B
 	bld.Raw("VSPLTISW $0, V29").                // V29 = zero (scatter gap source)
-		Raw("CMP R5, $0").Raw("BEQ done").
-		Label("loop")
+							Raw("CMP R5, $0").Raw("BEQ done").
+							Label("loop")
 	emitLoadB16(bld, "(R4)(R0)", "VS32", "V0") // V0 = four big-endian word values v
 
 	// digit: q = vReg/85 -> qReg ; remainder vReg - q*85 -> rReg. Scratch V16,V17,V18.
