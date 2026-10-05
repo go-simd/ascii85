@@ -103,8 +103,8 @@ func main() {
 	bld.Raw("MOVD $%s(SB), R6", gath)
 	emitLoadB16(bld, "(R6)(R0)", "VS54", "V22") // V22 = gather ctrl
 	bld.Raw("VSPLTISW $0, V19").                // zero (VPERM gap source)
-		Raw("CMP R5, $0").Raw("BEQ done").
-		Label("loop")
+							Raw("CMP R5, $0").Raw("BEQ done").
+							Label("loop")
 	// Gather C0..C4 from windows src+k. Each load is the ISA-2.07 LXVB16X
 	// emulation (LXVD2X + VPERM vrev -> identity layout in V0..V4), then the
 	// existing gather VPERM places window byte 5l into word lane l, then -'!'.
